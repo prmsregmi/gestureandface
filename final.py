@@ -5,14 +5,12 @@ import numpy as np
 from model import KeyPointClassifier
 from pprint import pprint
 
-#parameter definition
-buffer = True #if buffer, only gives response after buffer time else continuous
-buffer_duration = 5 #define in number of loops
 
 #global variables definition
 known_face_encodings = [] #encodings of faces for recognition
 known_face_names = [] #names of those encodings in serial order
 face_buffer = [] #buffer time (seconds) remaining in a face
+unknown_buffer = config.unknown_buffer
 face_locations = [] #location of faces in each frame during processing
 face_encodings = [] #encodings of located faces
 
@@ -33,6 +31,9 @@ with open('model/keypoint_classifier/keypoint_classifier_label.csv',
         ]
 keypoint_classifier = KeyPointClassifier()
 
+def recognition_response(face_label, gesture, time):
+    print(f"'Face Label':{face_label}, 'Gesture':{gesture}, 'Time':{time}")
+
 #function to generate face_encodings
 def create_face_encodings(folder= "facial_images"):
     for filename in os.listdir(folder):
@@ -40,7 +41,7 @@ def create_face_encodings(folder= "facial_images"):
             tmp_img = face_recognition.load_image_file(os.path.join(folder, filename))
             known_face_encodings.append(face_recognition.face_encodings(tmp_img)[0])
             known_face_names.append(filename.split(".")[0])
-            face_buffer.append(buffer_duration)
+            face_buffer.append(config.buffer_duration)
 create_face_encodings()
 #calculate landmarks from image in a frame
 def calc_landmark_list(image, landmarks):
@@ -89,8 +90,12 @@ with mp_face_detection.FaceDetection(
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5) as holistic:
  while cap.isOpened():
+
+    if (unknown_buffer < config.unknown_buffer):
+        unknown_buffer+=1
+
     for i in range(0, len(face_buffer)):
-        if (face_buffer[i] < buffer_duration):
+        if (face_buffer[i] < config.buffer_duration):
             face_buffer[i]+=1
 
     success, image = cap.read()
@@ -117,23 +122,27 @@ with mp_face_detection.FaceDetection(
             nose_y = face_landmarks_list[i]['nose_tip'][0][1]
             # See if the face is a match for the known face(s)
             matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
-            name = "Unknown"
-            cv2.imwrite(datetime.datetime.now().strftime("hello"), image)
-            # cv2.imwrite(datetime.datetime.now().strftime("%m-%d-%Y,%H:%M:%S"), image)
+            face_label = "Unknown"
+            
 
             # # If a match was found in known_face_encodings, just use the first one.
             # if True in matches:
             #     first_match_index = matches.index(True)
-            #     name = known_face_names[first_match_index]
+            #     face_label = known_face_names[first_match_index]
 
             # Or instead, use the known face with the smallest distance to the new face
             face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
             best_match_index = np.argmin(face_distances)
             face_recognition_accuracy = (1-face_distances[best_match_index])*100
             if face_recognition_accuracy > config.face_match_threshold and matches[best_match_index]:
-                name = known_face_names[best_match_index]
+                face_label = known_face_names[best_match_index]
+            if(face_label=="Unknown" and unknown_buffer == config.unknown_buffer):
+                img_save = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_RGB2BGR)
+                filename = datetime.datetime.now().strftime("%m-%d-%Y %H_%M_%S")+".jpg"
+                cv2.imwrite('unknown_faces/'+filename, img_save)
+                unknown_buffer = 0
 
-            face_names.append(name)
+            face_names.append(face_label)
             hand_results = hands.process(image)
 
     config.process_this_frame = not config.process_this_frame
@@ -159,12 +168,14 @@ with mp_face_detection.FaceDetection(
     #         print('distance is')
 #             print(dist)
             if(dist < config.threshold):
-                if not buffer:
-                    print(name, keypoint_classifier_labels[hand_sign_id])
+                if not config.buffer:
+                    if face_recognition_accuracy > config.face_match_threshold and matches[best_match_index]:
+                        recognition_response(face_label, keypoint_classifier_labels[hand_sign_id], datetime.datetime.now())
+                    # print(face_label, keypoint_classifier_labels[hand_sign_id])
                 else:
                     if face_recognition_accuracy > config.face_match_threshold and matches[best_match_index]:
-                        if(face_buffer[best_match_index] == buffer_duration):
-                            print(name, keypoint_classifier_labels[hand_sign_id])
+                        if(face_buffer[best_match_index] == config.buffer_duration):
+                            recognition_response(face_label, keypoint_classifier_labels[hand_sign_id], datetime.datetime.now())
                             face_buffer[best_match_index] = 0
                 
             if (config.display_window and config.display_hand_landmarks):

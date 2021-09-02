@@ -1,3 +1,7 @@
+#parameter definition
+buffer = True #if buffer, only gives response after buffer time else continuous
+buffer_duration = 20 #define in number of loops
+unknown_buffer = 20
 process_this_frame = True
 face_match_threshold = 65 #percentage threshold for face match accuracy
 display_window = True #display image or not, will only display result when false
